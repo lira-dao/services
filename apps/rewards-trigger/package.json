@@ -18,7 +18,8 @@
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
-    "docker:build": "docker build --no-cache -t reward-trigger ."
+    "docker:build": "docker build --no-cache -t reward-trigger .",
+    "docker:run": "docker run --restart always --name reward-trigger reward-trigger"
   },
   "dependencies": {
     "@lira-dao/web3-utils": "^1.13.0",
