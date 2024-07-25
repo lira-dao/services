@@ -1,7 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Web3SocketService } from '../services/web3.service';
 import { tokenStakerAddresses } from '@lira-dao/web3-utils';
-import TokenStaker from '@lira-dao/web3-utils/dist/abi/json/TokenStaker.json';
+import * as TokenStaker from '@lira-dao/web3-utils/dist/abi/json/TokenStaker.json';
 
 @Injectable()
 export class StakingService implements OnModuleInit {
@@ -22,11 +22,22 @@ export class StakingService implements OnModuleInit {
 
     this.logger.debug('tokenStakerAddress: ' + tokenStakerAddress);
 
-    this.contract = new web3.eth.Contract(
-      TokenStaker.abi,
-      tokenStakerAddress,
-    );
+    this.contract = new web3.eth.Contract(TokenStaker.abi, tokenStakerAddress);
 
-    this.contract.events.
+    this.contract.events.Stake().on('data', (event) => {
+      console.log(
+        'stake',
+        event.returnValues.wallet,
+        event.returnValues.amount,
+      );
+    });
+
+    this.contract.events.Unstake().on('data', (event) => {
+      console.log(
+        'unstake',
+        event.returnValues.wallet,
+        event.returnValues.amount,
+      );
+    });
   }
 }

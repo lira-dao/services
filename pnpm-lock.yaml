@@ -24,8 +24,8 @@ importers:
   apps/dex:
     dependencies:
       '@lira-dao/web3-utils':
-        specifier: ^1.15.0
-        version: 1.15.0
+        specifier: ^1.16.0
+        version: 1.16.0
       '@nestjs/common':
         specifier: ^10.0.0
         version: 10.3.8(reflect-metadata@0.2.2)(rxjs@7.8.1)
@@ -1148,8 +1148,8 @@ packages:
   '@lira-dao/web3-utils@1.13.0':
     resolution: {integrity: sha512-o9SxslbS2y7On6+KhxqXh1+R6ka9tUNBoZLp6xhm5/bsVPoi1kA1Va53aiQ3fqnYo+tXZsr+OFbQ6AwmiZ1T0w==}
 
-  '@lira-dao/web3-utils@1.15.0':
-    resolution: {integrity: sha512-9X3rYWv+s64OPqHPAzQ3BqPTAcsRN3SER/NnEPnDkI7Jaj2U5UT17oquvXiYvjH+9y1eMo1szlL8dDuTTbPESw==}
+  '@lira-dao/web3-utils@1.16.0':
+    resolution: {integrity: sha512-xgu1clfsQ6vmnJglzTQe0X4TX3EMUHcG9O7zhXkXKJmu6q48MNr01O21Adr6fLqIFZyR25oBxUKxPv55NLk0EQ==}
 
   '@ljharb/through@2.3.13':
     resolution: {integrity: sha512-/gKJun8NNiWGZJkGzI/Ragc53cOdcLNdzjLaIa+GEjguQs0ulsurx8WN0jijdK9yPqDvziX995sMRLyLt1uZMQ==}
@@ -5790,7 +5790,7 @@ snapshots:
 
   '@lira-dao/web3-utils@1.13.0': {}
 
-  '@lira-dao/web3-utils@1.15.0': {}
+  '@lira-dao/web3-utils@1.16.0': {}
 
   '@ljharb/through@2.3.13':
     dependencies:
