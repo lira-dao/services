@@ -1,4 +1,10 @@
-import { Controller, Get, Logger, HttpException, HttpStatus } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Logger,
+  HttpException,
+  HttpStatus,
+} from '@nestjs/common';
 import { PricesService } from './prices.service';
 
 @Controller('prices')
@@ -14,10 +20,13 @@ export class PricesController {
       return { status: 'success', data: prices };
     } catch (error) {
       this.logger.error('Failed to retrieve all prices', error);
-      throw new HttpException({
-        status: 'fail',
-        error: 'Failed to retrieve all prices',
-      }, HttpStatus.INTERNAL_SERVER_ERROR);
+      throw new HttpException(
+        {
+          status: 'fail',
+          error: 'Failed to retrieve all prices',
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
     }
   }
 }
