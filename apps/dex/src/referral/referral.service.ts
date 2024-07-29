@@ -4,7 +4,10 @@ import { NodePgDatabase } from 'drizzle-orm/node-postgres/index';
 import * as schema from '../db/schema';
 import { eq } from 'drizzle-orm';
 import { EthereumAddress } from '@lira-dao/web3-utils';
-import axios from 'axios';
+import { firstValueFrom } from 'rxjs';
+import { HttpService } from '@nestjs/axios';
+import { referralUrl } from '../db/schema';
+import * as process from 'node:process';
 
 @Injectable()
 export class ReferralService implements OnModuleInit {
@@ -12,9 +15,9 @@ export class ReferralService implements OnModuleInit {
 
   constructor(
     private readonly web3Service: Web3SocketService,
+    private readonly httpService: HttpService,
     @Inject('DB_DEV') private drizzleDev: NodePgDatabase<typeof schema>,
-  ) {
-  }
+  ) {}
 
   onModuleInit() {
     this.listenToEvents();
@@ -31,37 +34,51 @@ export class ReferralService implements OnModuleInit {
 
     const result = await this.drizzleDev
       .select()
-      .from(schema.referralCode)
-      .where(eq(schema.referralCode.referrer, address));
+      .from(schema.referralUrl)
+      .where(eq(schema.referralUrl.referrer, address));
 
     console.log('result', result);
 
     if (result.length === 0) {
       this.logger.log('create new url');
 
-      const newUrl = await axios.post(
-        'https://shrtlnk.dev/api/v2/link',
-        {
-          url: 'referral/' + address,
-        },
-        {
-          headers: {
-            'api-key': 'C4pxzZp4eYuC86upH3ef91U6sNBbXUkgWnIUstGWBOt5I',
+      const { data: newUrl } = await firstValueFrom(
+        this.httpService.post<{ code: string; shrtlnk: string }>(
+          'https://shrtlnk.dev/api/v2/link',
+          {
+            url: `${process.env.DEX_URL}/referral/${address}`,
           },
-        },
+          {
+            headers: {
+              'api-key': process.env.SHRTLNK_API_KEY,
+            },
+          },
+        ),
       );
 
-      this.logger.log('new url ' + newUrl.data.shrtlnk);
+      // const newUrl = await axios.post(
+      //   'https://shrtlnk.dev/api/v2/link',
+      //   {
+      //     url: 'referral/' + address,
+      //   },
+      //   {
+      //     headers: {
+      //       'api-key': 'C4pxzZp4eYuC86upH3ef91U6sNBbXUkgWnIUstGWBOt5I',
+      //     },
+      //   },
+      // );
+
+      this.logger.log('new url ' + newUrl.shrtlnk);
 
       await this.drizzleDev
-        .insert(schema.referralCode)
-        .values({ referrer: address, code: newUrl.data.shrtlnk });
+        .insert(schema.referralUrl)
+        .values({ referrer: address, url: newUrl.shrtlnk });
 
-      return newUrl.data.shrtlnk;
+      return newUrl.shrtlnk;
     }
 
-    this.logger.log('cached url ' + result[0].code);
+    this.logger.log('cached url ' + result[0].url);
 
-    return result[0].code;
+    return result[0].url;
   }
 }

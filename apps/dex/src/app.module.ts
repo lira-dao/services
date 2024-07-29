@@ -1,10 +1,13 @@
+import { HttpModule } from '@nestjs/axios';
 import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
+import { DrizzlePGModule } from '@knaadh/nestjs-drizzle-pg';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { StakingModule } from './staking/staking.module';
-import { ConfigModule } from '@nestjs/config';
 import { ReferralModule } from './referral/referral.module';
-import { DrizzlePGModule } from '@knaadh/nestjs-drizzle-pg';
+import { PricesModule } from './prices/prices.module';
 import * as schema from './db/schema';
 
 @Module({
@@ -20,8 +23,10 @@ import * as schema from './db/schema';
       },
       config: { schema: { ...schema } },
     }),
+    ScheduleModule.forRoot(),
     StakingModule,
     ReferralModule,
+    PricesModule,
   ],
   controllers: [AppController],
   providers: [AppService],
