@@ -1,20 +1,19 @@
 import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { Web3SocketService } from '../services/web3.service';
-import { NodePgDatabase } from 'drizzle-orm/node-postgres/index';
+import { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import * as schema from '../db/schema';
 import { eq } from 'drizzle-orm';
 import { EthereumAddress } from '@lira-dao/web3-utils';
 import { firstValueFrom } from 'rxjs';
 import { HttpService } from '@nestjs/axios';
-import { referralUrl } from '../db/schema';
 import * as process from 'node:process';
+import { Web3Provider } from '../services/web3.service';
 
 @Injectable()
 export class ReferralService implements OnModuleInit {
   private readonly logger = new Logger(ReferralService.name);
 
   constructor(
-    private readonly web3Service: Web3SocketService,
+    private readonly web3: Web3Provider,
     private readonly httpService: HttpService,
     @Inject('DB_DEV') private drizzleDev: NodePgDatabase<typeof schema>,
   ) {}
@@ -23,11 +22,7 @@ export class ReferralService implements OnModuleInit {
     this.listenToEvents();
   }
 
-  async listenToEvents() {
-    const web3 = this.web3Service.getWeb3Instance();
-
-    const chainId = await web3.eth.getChainId();
-  }
+  async listenToEvents() {}
 
   async getShortUrl(address: EthereumAddress): Promise<string> {
     this.logger.log('request url for ' + address);
