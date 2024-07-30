@@ -151,8 +151,7 @@ export class PricesService implements OnModuleInit {
     );
 
     liraPair.events.Swap().on('data', async (data) => {
-      this.logger.log('[LiraSwap] data', data, liraAddress);
-
+      this.logger.log('[LiraSwap] data', data);
       const pair = new this.web3.rpc.eth.Contract(
         UniswapV2Pair.abi,
         liraAddress,
@@ -167,8 +166,8 @@ export class PricesService implements OnModuleInit {
           ? [token0, token1]
           : [token1, token0];
 
-      this.logger.log('[LIRA pair]', pair);
-      this.logger.log('[LIRA pairTokens]', pairTokens);
+      this.logger.log('[LiraSwap pair]', pair);
+      this.logger.log('[LiraSwap pairTokens]', pairTokens);
 
       // TODO: decimals
       const amountsOut = await router.methods
@@ -180,8 +179,8 @@ export class PricesService implements OnModuleInit {
         .from(schema.prices)
         .where(eq(schema.prices.symbol, 'LDT'));
 
-      this.logger.log('[LIRA ethPrice] ' + ldtPrice[0].price);
-      this.logger.log('[LIRA amountsOut] ' + amountsOut);
+      this.logger.log('[LiraSwap ethPrice] ' + ldtPrice[0].price);
+      this.logger.log('[LiraSwap amountsOut] ' + amountsOut);
 
       const liraValues = {
         symbol: 'LIRA',
@@ -193,7 +192,7 @@ export class PricesService implements OnModuleInit {
         marketCap: '0',
       };
 
-      this.logger.log('[LIRA liraValues]', liraValues);
+      this.logger.log('[LiraSwap liraValues]', liraValues);
       this.drizzleDev
         .insert(schema.prices)
         .values(liraValues)
@@ -220,8 +219,64 @@ export class PricesService implements OnModuleInit {
       tbbPairAddress,
     );
 
+    const router = new this.web3.rpc.eth.Contract(
+      UniswapV2Router02.abi,
+      dexAddress[chainId.toString()].router,
+    );
+
     tbbPair.events.Swap().on('data', async (data) => {
-      this.logger.log('[TbbSwap] ' + JSON.stringify(data));
+      this.logger.log('[TbbSwap] ', data);
+
+      const pair = new this.web3.rpc.eth.Contract(
+        UniswapV2Pair.abi,
+        tbbPairAddress,
+      );
+
+      // TODO: remove when token table is present
+      const token0 = await pair.methods.token0().call();
+      const token1 = await pair.methods.token1().call();
+
+      const pairTokens =
+        token0 !== tokens[chainId.toString()].ldt
+          ? [token0, token1]
+          : [token1, token0];
+
+      this.logger.log('[TbbSwap pair]', pair);
+      this.logger.log('[TbbSwap pairTokens]', pairTokens);
+
+      // TODO: decimals
+      const amountsOut = await router.methods
+        .getAmountsOut(10n ** 18n, pairTokens)
+        .call();
+
+      const ldtPrice = await this.drizzleDev
+        .select()
+        .from(schema.prices)
+        .where(eq(schema.prices.symbol, 'LDT'));
+
+      this.logger.log('[TbbSwap ethPrice] ' + ldtPrice[0].price);
+      this.logger.log('[TbbSwap amountsOut] ' + amountsOut);
+
+      const tbbValues = {
+        symbol: 'TBb',
+        price: new BigNumber(amountsOut[1])
+          .div(10 ** 18)
+          .times(ldtPrice[0].price)
+          .toString(),
+        volume: '0',
+        marketCap: '0',
+      };
+
+      this.logger.log('[TbbSwap tbbValues]', tbbValues);
+      this.drizzleDev
+        .insert(schema.prices)
+        .values(tbbValues)
+        .onConflictDoUpdate({
+          target: schema.prices.symbol,
+          set: tbbValues,
+        })
+        .then(() => this.logger.debug('updated lira price'))
+        .catch((err) => this.logger.error('error updating lira price', err));
     });
 
     tbbPair.events.Swap().on('connected', (connected) => {
@@ -234,16 +289,72 @@ export class PricesService implements OnModuleInit {
 
     const tbsPairAddress = Object.keys(dexPairs[chainId.toString()])[4];
 
-    const tbbPair = new this.web3.socket.eth.Contract(
+    const tbsPair = new this.web3.socket.eth.Contract(
       UniswapV2Pair.abi,
       tbsPairAddress,
     );
 
-    tbbPair.events.Swap().on('data', async (data) => {
-      this.logger.log('[TbsSwap] ' + JSON.stringify(data));
+    const router = new this.web3.rpc.eth.Contract(
+      UniswapV2Router02.abi,
+      dexAddress[chainId.toString()].router,
+    );
+
+    tbsPair.events.Swap().on('data', async (data) => {
+      this.logger.log('[TbsSwap] ', data);
+
+      const pair = new this.web3.rpc.eth.Contract(
+        UniswapV2Pair.abi,
+        tbsPairAddress,
+      );
+
+      // TODO: remove when token table is present
+      const token0 = await pair.methods.token0().call();
+      const token1 = await pair.methods.token1().call();
+
+      const pairTokens =
+        token0 !== tokens[chainId.toString()].ldt
+          ? [token0, token1]
+          : [token1, token0];
+
+      this.logger.log('[TbsSwap pair]', pair);
+      this.logger.log('[TbsSwap pairTokens]', pairTokens);
+
+      // TODO: decimals
+      const amountsOut = await router.methods
+        .getAmountsOut(10n ** 18n, pairTokens)
+        .call();
+
+      const ldtPrice = await this.drizzleDev
+        .select()
+        .from(schema.prices)
+        .where(eq(schema.prices.symbol, 'LDT'));
+
+      this.logger.log('[TbsSwap ethPrice] ' + ldtPrice[0].price);
+      this.logger.log('[TbsSwap amountsOut] ' + amountsOut);
+
+      const tbsValues = {
+        symbol: 'TBs',
+        price: new BigNumber(amountsOut[1])
+          .div(10 ** 18)
+          .times(ldtPrice[0].price)
+          .toString(),
+        volume: '0',
+        marketCap: '0',
+      };
+
+      this.logger.log('[TbsSwap tbgValues]', tbsValues);
+      this.drizzleDev
+        .insert(schema.prices)
+        .values(tbsValues)
+        .onConflictDoUpdate({
+          target: schema.prices.symbol,
+          set: tbsValues,
+        })
+        .then(() => this.logger.debug('updated tbs price'))
+        .catch((err) => this.logger.error('error updating tbs price', err));
     });
 
-    tbbPair.events.Swap().on('connected', (connected) => {
+    tbsPair.events.Swap().on('connected', (connected) => {
       this.logger.log('[TbsSwap] connected: ' + connected);
     });
   }
@@ -253,16 +364,72 @@ export class PricesService implements OnModuleInit {
 
     const tbgPairAddress = Object.keys(dexPairs[chainId.toString()])[5];
 
-    const tbbPair = new this.web3.socket.eth.Contract(
+    const tbgPair = new this.web3.socket.eth.Contract(
       UniswapV2Pair.abi,
       tbgPairAddress,
     );
 
-    tbbPair.events.Swap().on('data', async (data) => {
-      this.logger.log('[TbgSwap] ' + JSON.stringify(data));
+    const router = new this.web3.rpc.eth.Contract(
+      UniswapV2Router02.abi,
+      dexAddress[chainId.toString()].router,
+    );
+
+    tbgPair.events.Swap().on('data', async (data) => {
+      this.logger.log('[TbgSwap] ', data);
+
+      const pair = new this.web3.rpc.eth.Contract(
+        UniswapV2Pair.abi,
+        tbgPairAddress,
+      );
+
+      // TODO: remove when token table is present
+      const token0 = await pair.methods.token0().call();
+      const token1 = await pair.methods.token1().call();
+
+      const pairTokens =
+        token0 !== tokens[chainId.toString()].ldt
+          ? [token0, token1]
+          : [token1, token0];
+
+      this.logger.log('[TbgSwap pair]', pair);
+      this.logger.log('[TbgSwap pairTokens]', pairTokens);
+
+      // TODO: decimals
+      const amountsOut = await router.methods
+        .getAmountsOut(10n ** 18n, pairTokens)
+        .call();
+
+      const ldtPrice = await this.drizzleDev
+        .select()
+        .from(schema.prices)
+        .where(eq(schema.prices.symbol, 'LDT'));
+
+      this.logger.log('[TbgSwap ethPrice] ' + ldtPrice[0].price);
+      this.logger.log('[TbgSwap amountsOut] ' + amountsOut);
+
+      const tbgValues = {
+        symbol: 'TBg',
+        price: new BigNumber(amountsOut[1])
+          .div(10 ** 18)
+          .times(ldtPrice[0].price)
+          .toString(),
+        volume: '0',
+        marketCap: '0',
+      };
+
+      this.logger.log('[TbgSwap tbgValues]', tbgValues);
+      this.drizzleDev
+        .insert(schema.prices)
+        .values(tbgValues)
+        .onConflictDoUpdate({
+          target: schema.prices.symbol,
+          set: tbgValues,
+        })
+        .then(() => this.logger.debug('updated tbg price'))
+        .catch((err) => this.logger.error('error updating tbg price', err));
     });
 
-    tbbPair.events.Swap().on('connected', (connected) => {
+    tbgPair.events.Swap().on('connected', (connected) => {
       this.logger.log('[TbgSwap] connected: ' + connected);
     });
   }
