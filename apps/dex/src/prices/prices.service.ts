@@ -42,42 +42,22 @@ export class PricesService implements OnModuleInit {
     @Inject('DB_DEV') private drizzleDev: NodePgDatabase<typeof schema>,
   ) {}
 
-  onModuleInit() {
-    this.listenToEvents();
+  async onModuleInit() {
+    await this.listenToLdtPairEvents();
+    await this.listenToLiraPairEvents();
+    await this.listenToTbbPairEvents();
+    await this.listenToTbsPairEvents();
+    await this.listenToTbgPairEvents();
   }
 
-  async listenToEvents() {
-    this.logger.log('CHAIN ID: ' + (await this.web3.getChainId()));
+  async listenToLdtPairEvents() {
+    const chainId = await this.web3.getChainId();
 
-    const chainId = await this.web3.rpc.eth.getChainId();
-
-    const address = Object.keys(dexPairs[chainId.toString()])[0];
-    const liraAddress = Object.keys(dexPairs[chainId.toString()])[1];
-    const tbbPairAddress = Object.keys(dexPairs[chainId.toString()])[3];
-    const tbsPairAddress = Object.keys(dexPairs[chainId.toString()])[4];
-    const tbgPairAddress = Object.keys(dexPairs[chainId.toString()])[5];
+    const ldtPairAddress = Object.keys(dexPairs[chainId.toString()])[0];
 
     const contract = new this.web3.socket.eth.Contract(
       UniswapV2Pair.abi,
-      address,
-    );
-    const liraPair = new this.web3.socket.eth.Contract(
-      UniswapV2Pair.abi,
-      liraAddress,
-    );
-    const tbbPair = new this.web3.socket.eth.Contract(
-      UniswapV2Pair.abi,
-      tbbPairAddress,
-    );
-
-    const tbsPair = new this.web3.socket.eth.Contract(
-      UniswapV2Pair.abi,
-      tbsPairAddress,
-    );
-
-    const tbgPair = new this.web3.socket.eth.Contract(
-      UniswapV2Pair.abi,
-      tbgPairAddress,
+      ldtPairAddress,
     );
 
     const router = new this.web3.rpc.eth.Contract(
@@ -86,9 +66,12 @@ export class PricesService implements OnModuleInit {
     );
 
     contract.events.Swap().on('data', async (data) => {
-      this.logger.log('[SwapExactTokensForETH] data', data, address);
+      this.logger.log('[LdtSwap] data', data, ldtPairAddress);
 
-      const pair = new this.web3.rpc.eth.Contract(UniswapV2Pair.abi, address);
+      const pair = new this.web3.rpc.eth.Contract(
+        UniswapV2Pair.abi,
+        ldtPairAddress,
+      );
 
       // TODO: remove when token table is present
       const token0 = await pair.methods.token0().call();
@@ -140,19 +123,35 @@ export class PricesService implements OnModuleInit {
     });
 
     contract.events.Swap().on('error', (error) => {
-      this.logger.log('[SwapExactTokensForETH] error', error);
+      this.logger.log('[LdtSwap] error', error);
     });
 
     contract.events.Swap().on('changed', (changed) => {
-      this.logger.log('[SwapExactTokensForETH] changed', changed);
+      this.logger.log('[LdtSwap] changed', changed);
     });
 
     contract.events.Swap().on('connected', (connected) => {
-      this.logger.log('[SwapExactTokensForETH] connected', connected);
+      this.logger.log('[LdtSwap] connected: ' + connected);
     });
+  }
+
+  async listenToLiraPairEvents() {
+    const chainId = await this.web3.getChainId();
+
+    const liraAddress = Object.keys(dexPairs[chainId.toString()])[1];
+
+    const liraPair = new this.web3.socket.eth.Contract(
+      UniswapV2Pair.abi,
+      liraAddress,
+    );
+
+    const router = new this.web3.rpc.eth.Contract(
+      UniswapV2Router02.abi,
+      dexAddress[chainId.toString()].router,
+    );
 
     liraPair.events.Swap().on('data', async (data) => {
-      this.logger.log('[LIRA SwapExactTokensForETH] data', data, liraAddress);
+      this.logger.log('[LiraSwap] data', data, liraAddress);
 
       const pair = new this.web3.rpc.eth.Contract(
         UniswapV2Pair.abi,
@@ -205,9 +204,68 @@ export class PricesService implements OnModuleInit {
         .then(() => this.logger.debug('updated lira price'))
         .catch((err) => this.logger.error('error updating lira price', err));
     });
+
+    liraPair.events.Swap().on('connected', (connected) => {
+      this.logger.log('[LiraSwap] connected: ' + connected);
+    });
   }
 
-  async listenToTbbPairEvents() {}
+  async listenToTbbPairEvents() {
+    const chainId = await this.web3.getChainId();
+
+    const tbbPairAddress = Object.keys(dexPairs[chainId.toString()])[3];
+
+    const tbbPair = new this.web3.socket.eth.Contract(
+      UniswapV2Pair.abi,
+      tbbPairAddress,
+    );
+
+    tbbPair.events.Swap().on('data', async (data) => {
+      this.logger.log('[TbbSwap] ' + JSON.stringify(data));
+    });
+
+    tbbPair.events.Swap().on('connected', (connected) => {
+      this.logger.log('[TbbSwap] connected: ' + connected);
+    });
+  }
+
+  async listenToTbsPairEvents() {
+    const chainId = await this.web3.getChainId();
+
+    const tbsPairAddress = Object.keys(dexPairs[chainId.toString()])[4];
+
+    const tbbPair = new this.web3.socket.eth.Contract(
+      UniswapV2Pair.abi,
+      tbsPairAddress,
+    );
+
+    tbbPair.events.Swap().on('data', async (data) => {
+      this.logger.log('[TbsSwap] ' + JSON.stringify(data));
+    });
+
+    tbbPair.events.Swap().on('connected', (connected) => {
+      this.logger.log('[TbsSwap] connected: ' + connected);
+    });
+  }
+
+  async listenToTbgPairEvents() {
+    const chainId = await this.web3.getChainId();
+
+    const tbgPairAddress = Object.keys(dexPairs[chainId.toString()])[5];
+
+    const tbbPair = new this.web3.socket.eth.Contract(
+      UniswapV2Pair.abi,
+      tbgPairAddress,
+    );
+
+    tbbPair.events.Swap().on('data', async (data) => {
+      this.logger.log('[TbgSwap] ' + JSON.stringify(data));
+    });
+
+    tbbPair.events.Swap().on('connected', (connected) => {
+      this.logger.log('[TbgSwap] connected: ' + connected);
+    });
+  }
 
   @Cron(CronExpression.EVERY_HOUR)
   async handleCron() {

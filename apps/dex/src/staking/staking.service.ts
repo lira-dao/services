@@ -14,7 +14,7 @@ export class StakingService implements OnModuleInit {
   }
 
   async listenToEvents() {
-    const chainId = await this.web3.rpc.eth.getChainId();
+    const chainId = await this.web3.getChainId();
     const tokenStakerAddress = tokenStakerAddresses[chainId.toString()].tbb;
 
     this.logger.debug('tokenStakerAddress: ' + tokenStakerAddress);
