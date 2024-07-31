@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import { Cron } from '@nestjs/schedule';
 import * as RewardSplitterV2 from '@lira-dao/web3-utils/dist/abi/json/RewardSplitterV2.json';
 import { Web3Service } from './services/web3.service';
 import { rewardSplitter } from '@lira-dao/web3-utils';
