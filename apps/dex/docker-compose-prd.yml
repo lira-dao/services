@@ -19,6 +19,7 @@ services:
       dockerfile: Dockerfile
     environment:
       - RPC_URL=${RPC_URL}
+      - WS_URL=${WS_URL}
       - CMC_API_KEY=${CMC_API_KEY}
       - POSTGRES_URL=${POSTGRES_URL}
       - VIRTUAL_HOST=${VIRTUAL_HOST}
