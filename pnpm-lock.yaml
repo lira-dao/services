@@ -139,8 +139,8 @@ importers:
   apps/rewards-trigger:
     dependencies:
       '@lira-dao/web3-utils':
-        specifier: ^1.13.0
-        version: 1.16.0
+        specifier: ^1.16.3
+        version: 1.16.3
       '@nestjs/common':
         specifier: ^10.0.0
         version: 10.3.10(reflect-metadata@0.2.2)(rxjs@7.8.1)
@@ -890,9 +890,6 @@ packages:
       '@nestjs/common': '>=9.0.0'
       drizzle-orm: '>=0.28.6'
       pg: '>=8'
-
-  '@lira-dao/web3-utils@1.16.0':
-    resolution: {integrity: sha512-xgu1clfsQ6vmnJglzTQe0X4TX3EMUHcG9O7zhXkXKJmu6q48MNr01O21Adr6fLqIFZyR25oBxUKxPv55NLk0EQ==}
 
   '@lira-dao/web3-utils@1.16.3':
     resolution: {integrity: sha512-2jAnjpFXaJt3YXzyky7TJJ3CPYwze2oTvv0FJX9pvuA8mMCONzmhYJB890I7KbkCU4+C2U+eSlQREmRXBD49tg==}
@@ -5163,8 +5160,6 @@ snapshots:
       drizzle-orm: 0.30.10(pg@8.12.0)
       pg: 8.12.0
       tslib: 2.6.3
-
-  '@lira-dao/web3-utils@1.16.0': {}
 
   '@lira-dao/web3-utils@1.16.3': {}
 
