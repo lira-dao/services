@@ -2,7 +2,7 @@
 
 pnpm build
 
-docker compose build --no-cache
+docker compose -f docker-compose-prd.yml build --no-cache
 
 RPC_URL=rpc-url \
 WS_URL=ws-url \
@@ -11,4 +11,7 @@ POSTGRES_URL=postgres-url \
 VIRTUAL_HOST=virtual-host \
 LETSENCRYPT_HOST=host \
 LETSENCRYPT_EMAIL=email \
-docker compose up -f docker-compose-prd.yml -d && docker compose logs -f
+PG_USER=postgres \
+PG_PASSWORD=password \
+PG_DB=dex-testnet \
+docker compose -f docker-compose-prd.yml up -d && docker compose -f docker-compose-prd.yml logs -f
