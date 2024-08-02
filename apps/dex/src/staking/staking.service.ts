@@ -9,15 +9,13 @@ export class StakingService implements OnModuleInit {
 
   constructor(private readonly web3: Web3Provider) {}
 
-  onModuleInit() {
-    this.listenToEvents();
+  async onModuleInit() {
+    // await this.listenToEvents();
   }
 
   async listenToEvents() {
     const chainId = await this.web3.getChainId();
     const tokenStakerAddress = tokenStakerAddresses[chainId.toString()].tbb;
-
-    this.logger.debug('tokenStakerAddress: ' + tokenStakerAddress);
 
     const contract = new this.web3.rpc.eth.Contract(
       TokenStaker.abi,

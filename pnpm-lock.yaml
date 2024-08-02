@@ -27,8 +27,8 @@ importers:
         specifier: ^1.0.0
         version: 1.0.0(@nestjs/common@10.3.10(reflect-metadata@0.2.2)(rxjs@7.8.1))(drizzle-orm@0.30.10(pg@8.12.0))(pg@8.12.0)
       '@lira-dao/web3-utils':
-        specifier: ^1.17.0
-        version: 1.17.0
+        specifier: ^1.17.2
+        version: 1.17.2
       '@nestjs/axios':
         specifier: ^3.0.2
         version: 3.0.2(@nestjs/common@10.3.10(reflect-metadata@0.2.2)(rxjs@7.8.1))(axios@1.7.2)(rxjs@7.8.1)
@@ -139,8 +139,8 @@ importers:
   apps/rewards-trigger:
     dependencies:
       '@lira-dao/web3-utils':
-        specifier: ^1.17.0
-        version: 1.17.0
+        specifier: ^1.17.2
+        version: 1.17.2
       '@nestjs/common':
         specifier: ^10.0.0
         version: 10.3.10(reflect-metadata@0.2.2)(rxjs@7.8.1)
@@ -891,8 +891,8 @@ packages:
       drizzle-orm: '>=0.28.6'
       pg: '>=8'
 
-  '@lira-dao/web3-utils@1.17.0':
-    resolution: {integrity: sha512-ZrUFveMhinMGXksoB9ja2v9bEkoIRmWdTKo+JIPEHsIkPNmV7L3ug1wMHb+PT2embkjg+FblBc6Xsf+ckHZ5LQ==}
+  '@lira-dao/web3-utils@1.17.2':
+    resolution: {integrity: sha512-cKXQ33uNo9WAfjUwWrKWVF+iR9juewsR70CE7n0SfCPCNtXbg2MrHOIJ/LrP8rM+SI/cuC53Q1kBcu59Q+YmSQ==}
 
   '@ljharb/through@2.3.13':
     resolution: {integrity: sha512-/gKJun8NNiWGZJkGzI/Ragc53cOdcLNdzjLaIa+GEjguQs0ulsurx8WN0jijdK9yPqDvziX995sMRLyLt1uZMQ==}
@@ -5161,7 +5161,7 @@ snapshots:
       pg: 8.12.0
       tslib: 2.6.3
 
-  '@lira-dao/web3-utils@1.17.0': {}
+  '@lira-dao/web3-utils@1.17.2': {}
 
   '@ljharb/through@2.3.13':
     dependencies:

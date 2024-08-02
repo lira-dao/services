@@ -1,9 +1,21 @@
-import { integer, numeric, pgTable, varchar } from 'drizzle-orm/pg-core';
+import {
+  integer,
+  numeric,
+  pgTable,
+  unique,
+  varchar,
+} from 'drizzle-orm/pg-core';
 
-export const referral = pgTable('referral', {
-  referrer: varchar('referrer'),
-  referral: varchar('referral'),
-});
+export const referral = pgTable(
+  'referral',
+  {
+    referrer: varchar('referrer').notNull(),
+    referral: varchar('referral').notNull(),
+  },
+  (t) => ({
+    un_referrer_referral: unique().on(t.referrer, t.referral),
+  }),
+);
 
 export const referralUrl = pgTable('referral_url', {
   referrer: varchar('referrer').primaryKey().notNull(),
