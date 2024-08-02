@@ -22,7 +22,7 @@
     "docker:run": "docker run --restart always --name reward-trigger reward-trigger"
   },
   "dependencies": {
-    "@lira-dao/web3-utils": "^1.16.4",
+    "@lira-dao/web3-utils": "^1.17.0",
     "@nestjs/common": "^10.0.0",
     "@nestjs/config": "^3.2.2",
     "@nestjs/core": "^10.0.0",
