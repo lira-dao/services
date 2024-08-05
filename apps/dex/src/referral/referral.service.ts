@@ -35,7 +35,8 @@ export class ReferralService implements OnModuleInit {
     const endBlock = await this.web3.rpc.eth.getBlockNumber();
     this.logger.log('[sync] latestBlock: ' + endBlock.toString());
 
-    const startBlock = 68487003;
+    // const startBlock = 68487003; // arbitrum sepolia
+    const startBlock = 239685866; // arbitrum one
     const batchSize = 500000;
     let allEvents = [];
     let currentStartBlock = startBlock;
