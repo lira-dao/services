@@ -39,10 +39,10 @@ services:
       - "443:443"
     volumes:
       - /var/run/docker.sock:/tmp/docker.sock:ro
-      - ./nginx-certs:/etc/nginx/certs:ro
-      - ./nginx-vhost.d:/etc/nginx/vhost.d
-      - ./nginx-html:/usr/share/nginx/html
-      - ./nginx-conf:/etc/nginx/conf.d
+      - nginx-certs:/etc/nginx/certs:ro
+      - nginx-vhost.d:/etc/nginx/vhost.d
+      - nginx-html:/usr/share/nginx/html
+      - nginx-conf:/etc/nginx/conf.d
     restart: unless-stopped
 
   letsencrypt-nginx-proxy-companion:
@@ -52,9 +52,9 @@ services:
       - NGINX_PROXY_CONTAINER=nginx-proxy
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ./nginx-certs:/etc/nginx/certs:rw
-      - ./nginx-vhost.d:/etc/nginx/vhost.d
-      - ./nginx-html:/usr/share/nginx/html
+      - nginx-certs:/etc/nginx/certs:rw
+      - nginx-vhost.d:/etc/nginx/vhost.d
+      - nginx-html:/usr/share/nginx/html
     depends_on:
       - nginx-proxy
     restart: unless-stopped
