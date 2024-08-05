@@ -434,7 +434,7 @@ export class PricesService implements OnModuleInit {
     });
   }
 
-  @Cron(CronExpression.EVERY_5_MINUTES)
+  @Cron(CronExpression.EVERY_10_MINUTES)
   async handleCron() {
     this.logger.debug('start updating prices');
 

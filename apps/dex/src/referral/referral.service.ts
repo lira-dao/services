@@ -21,7 +21,6 @@ export class ReferralService implements OnModuleInit {
   async onModuleInit() {
     await this.sync();
     await this.listenToReferralRegisteredEvent();
-    // await this.listenToEvents();
   }
 
   async sync() {
