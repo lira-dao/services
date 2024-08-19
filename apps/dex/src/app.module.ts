@@ -7,6 +7,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { StakingModule } from './staking/staking.module';
 import { ReferralModule } from './referral/referral.module';
+import { ReferralsModule } from './referrals/referrals.module';
 import { PricesModule } from './prices/prices.module';
 import * as schema from './db/schema';
 
@@ -26,6 +27,7 @@ import * as schema from './db/schema';
     ScheduleModule.forRoot(),
     StakingModule,
     ReferralModule,
+    ReferralsModule,
     PricesModule,
   ],
   controllers: [AppController],
