@@ -15,6 +15,13 @@
       "when": 1722617269694,
       "tag": "0001_groovy_shriek",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1724160050233,
+      "tag": "0002_hot_ronan",
+      "breakpoints": true
     }
   ]
 }
