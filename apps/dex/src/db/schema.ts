@@ -1,9 +1,12 @@
+import { sql } from 'drizzle-orm';
 import {
   integer,
   numeric,
   pgTable,
+  serial,
   unique,
   varchar,
+  timestamp
 } from 'drizzle-orm/pg-core';
 
 export const referral = pgTable(
@@ -42,4 +45,16 @@ export const price = pgTable('price', {
   token0: varchar('token0'),
   token1: varchar('token1'),
   price: numeric('price').notNull(),
+});
+
+export const stakingRewards = pgTable('staking_rewards', {
+  id: serial('id').primaryKey(),
+  stakerAddress: varchar('staker_address').notNull(),
+  referrerAddress: varchar('referrer_address'),
+  tokenAddress: varchar('staked_token_address').notNull(),
+  stakedAmount: numeric('staked_amount').notNull(),
+  rewardAmount: numeric('reward_amount').notNull(),
+  stakingTxId: varchar('staking_tx_id').notNull(),
+  rewardTxId: varchar('reward_tx_id'),
+  createdAt: timestamp('created_at').default(sql`now()`),
 });
