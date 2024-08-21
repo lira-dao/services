@@ -2,7 +2,7 @@ import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { eq } from 'drizzle-orm';
 import * as schema from '../db/schema';
-import { tokenStakerAddresses } from '@lira-dao/web3-utils';
+import { tokenStakerAddresses, tokens } from '@lira-dao/web3-utils';
 import { Web3Provider } from '../services/web3.service';
 import * as TokenStaker from '@lira-dao/web3-utils/dist/abi/json/TokenStaker.json';
 
@@ -22,19 +22,22 @@ export class StakingService implements OnModuleInit {
   async listenToAllStakingEvents() {
     const chainId = await this.web3.getChainId();
     const stakingContracts = tokenStakerAddresses[chainId.toString()];
+    const tokenContracts = tokens[chainId.toString()];
 
     await Promise.all(
       Object.keys(stakingContracts).map(async (key) => {
         const tokenStakerAddress = stakingContracts[key];
+        const tokenAddress = tokenContracts[key];
+
         this.logger.log(
-          `[listenToAllStakingEvents] Subscribing to staking/unstaking events for ${key} at address ${tokenStakerAddress}`,
+          `[listenToAllStakingEvents] Subscribing to staking/unstaking events for ${key} at address ${tokenStakerAddress} forn token ${tokenAddress}`,
         );
-        await this.listenToStakingEvents(tokenStakerAddress, key);
+        await this.listenToStakingEvents(tokenStakerAddress, tokenAddress, key);
       })
     );
   }
 
-  async listenToStakingEvents(tokenStakerAddress: string, contractName: string) {
+  async listenToStakingEvents(tokenStakerAddress: string, tokenAddress: string, contractName: string) {
 
     const contract = new this.web3.socket.eth.Contract(
       TokenStaker.abi,
@@ -60,7 +63,7 @@ export class StakingService implements OnModuleInit {
             .values({
               stakerAddress: address,
               referrerAddress: referrer,
-              tokenAddress: tokenStakerAddress,
+              tokenAddress: tokenAddress,
               stakedAmount: amount.toString(),
               rewardAmount: rewardAmount.toString(),
               stakingTxId: txId,
@@ -83,6 +86,16 @@ export class StakingService implements OnModuleInit {
       const txId = event.transactionHash;
 
       this.logger.log(`[${contractName}] Unstake event: wallet=${wallet}, amount=${amount}, txId=${txId}`);
+
+      // const result = await this.drizzleDev
+      //   .delete(schema.stakingRewards)
+      //   .where(eq(schema.stakingRewards.stakerAddress, wallet));
+      
+      // if (result.rowCount === 0) {
+      //   this.logger.log(`Nessun record trovato per l'indirizzo ${wallet}, nulla da eliminare.`);
+      // } else {
+      //   this.logger.log(`[${contractName}] Record stakingAddress=${wallet} eliminato dal database.`);
+      // }
     });
 
     contract.events.Stake().on('error', (error) => {
