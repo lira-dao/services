@@ -51,6 +51,7 @@ export const stakingRewards = pgTable('staking_rewards', {
   id: serial('id').primaryKey(),
   stakerAddress: varchar('staker_address').notNull(),
   referrerAddress: varchar('referrer_address'),
+  tokenAddress: varchar('staked_token_address').notNull(),
   stakedAmount: numeric('staked_amount').notNull(),
   rewardAmount: numeric('reward_amount').notNull(),
   stakingTxId: varchar('staking_tx_id').notNull(),

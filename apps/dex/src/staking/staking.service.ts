@@ -60,6 +60,7 @@ export class StakingService implements OnModuleInit {
             .values({
               stakerAddress: address,
               referrerAddress: referrer,
+              tokenAddress: tokenStakerAddress,
               stakedAmount: amount.toString(),
               rewardAmount: rewardAmount.toString(),
               stakingTxId: txId,
