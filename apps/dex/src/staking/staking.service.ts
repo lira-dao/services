@@ -1,9 +1,9 @@
 import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { NodePgDatabase } from 'drizzle-orm/node-postgres';
-import { eq, isNull } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import * as schema from '../db/schema';
-import { tokenStakerAddresses, tokens, erc20Abi } from '@lira-dao/web3-utils';
+import { tokenStakerAddresses, tokens, erc20Abi, EthereumAddress } from '@lira-dao/web3-utils';
 import { Web3Provider } from '../services/web3.service';
 import * as TokenStaker from '@lira-dao/web3-utils/dist/abi/json/TokenStaker.json';
 import * as MulticallAbi from '../../abi/json/Multicall.json';
@@ -20,6 +20,7 @@ export class StakingService implements OnModuleInit {
   async onModuleInit() {
     await this.listenToAllStakingEvents();
     // await this.distributePendingRewards();
+    // this.distributePendingReferralRewards();
   }
 
   // TODO: Listen time lock staking pool
@@ -27,6 +28,7 @@ export class StakingService implements OnModuleInit {
     const chainId = await this.web3.getChainId();
     const stakingContracts = tokenStakerAddresses[chainId.toString()];
     const tokenContracts = tokens[chainId.toString()];
+    const tokenLdtAddress = tokens[chainId.toString()]['ldt']
 
     await Promise.all(
       Object.keys(stakingContracts).map(async (key) => {
@@ -34,14 +36,14 @@ export class StakingService implements OnModuleInit {
         const tokenAddress = tokenContracts[key];
 
         this.logger.log(
-          `[listenToAllStakingEvents] Subscribing to staking/unstaking events for ${key} at address ${tokenStakerAddress} forn token ${tokenAddress}`,
+          `[listenToAllStakingEvents] Subscribing to Stake/Unstake, Harvest events for ${key} at address ${tokenStakerAddress} from token ${tokenAddress}`,
         );
-        await this.listenToStakingEvents(tokenStakerAddress, tokenAddress, key);
+        await this.listenToStakingEvents(tokenStakerAddress, tokenAddress, tokenLdtAddress, key);
       })
     );
   }
 
-  async listenToStakingEvents(tokenStakerAddress: string, tokenAddress: string, contractName: string) {
+  async listenToStakingEvents(tokenStakerAddress: string, tokenAddress: EthereumAddress, ldtTokenAddress: EthereumAddress, contractName: string) {
 
     const contract = new this.web3.socket.eth.Contract(
       TokenStaker.abi,
@@ -50,7 +52,7 @@ export class StakingService implements OnModuleInit {
 
     contract.events.Stake().on('data', async (event) => {
 
-      const address = event.returnValues.wallet as string;
+      const address = event.returnValues.wallet as EthereumAddress;
       const amount = BigInt(event.returnValues.amount as string);
       const txId = event.transactionHash;
 
@@ -84,8 +86,42 @@ export class StakingService implements OnModuleInit {
       }
     });
 
+    contract.events.Harvest().on('data', async (event) => {
+
+      const address = event.returnValues.wallet as EthereumAddress;
+      const amountLDT = BigInt(event.returnValues.amountToken1 as string);
+      const amountTB = BigInt(event.returnValues.amountToken2 as string);
+      const txId = event.transactionHash;
+
+      this.logger.log(`[${contractName}] Harvest event: wallet=${address}, amount=[${amountLDT}, ${amountTB})], txId=${txId}`);
+
+      const referrers = await this.getLevelsReferrer(address);
+      if (!referrers) {
+        this.logger.log(`No referrer found for staker ${address}. Skipping referral reward.`);
+        return;
+      }
+
+      const firstLevelRewardLDT = (amountLDT * 25n) / 1000n;
+      const secondLevelRewardLDT = (amountLDT * 15n) / 1000n;
+      const thirdLevelRewardLDT = (amountLDT * 10n) / 1000n;
+
+      const firstLevelRewardTB = (amountTB * 25n) / 1000n;
+      const secondLevelRewardTB = (amountTB * 15n) / 1000n;
+      const thirdLevelRewardTB = (amountTB * 10n) / 1000n;
+
+      if (referrers.firstLevel) {
+        await this.saveReferralReward(referrers.firstLevel, [ldtTokenAddress, tokenAddress], [firstLevelRewardLDT, firstLevelRewardTB], txId);
+      }
+      if (referrers.secondLevel) {
+        await this.saveReferralReward(referrers.secondLevel, [ldtTokenAddress, tokenAddress], [secondLevelRewardLDT, secondLevelRewardTB], txId);
+      }
+      if (referrers.thirdLevel) {
+        await this.saveReferralReward(referrers.thirdLevel, [ldtTokenAddress, tokenAddress], [thirdLevelRewardLDT, thirdLevelRewardTB], txId);
+      }
+    });
+
     contract.events.Unstake().on('data', async (event) => {
-      const address = event.returnValues.wallet as string;
+      const address = event.returnValues.wallet as EthereumAddress;
       const amount = event.returnValues.amount;
       const txId = event.transactionHash;
 
@@ -118,6 +154,59 @@ export class StakingService implements OnModuleInit {
       .where(eq(schema.referral.referral, address));
   
     return result.length > 0 ? result[0].referrer : null;
+  }
+
+  private async getLevelsReferrer(address: string) {
+    const firstLevelReferrer = await this.drizzleDev
+      .select()
+      .from(schema.referral)
+      .where(eq(schema.referral.referral, address))
+      .then(res => res[0]?.referrer);
+
+    if (!firstLevelReferrer) return null;
+
+    const secondLevelReferrer = await this.drizzleDev
+      .select()
+      .from(schema.referral)
+      .where(eq(schema.referral.referral, firstLevelReferrer))
+      .then(res => res[0]?.referrer);
+
+    const thirdLevelReferrer = secondLevelReferrer
+      ? await this.drizzleDev
+          .select()
+          .from(schema.referral)
+          .where(eq(schema.referral.referral, secondLevelReferrer))
+          .then(res => res[0]?.referrer)
+      : null;
+
+    return {
+      firstLevel: firstLevelReferrer,
+      secondLevel: secondLevelReferrer,
+      thirdLevel: thirdLevelReferrer,
+    };
+  }
+
+  private async saveReferralReward(
+    referrerAddress: string, 
+    tokenAddresses: EthereumAddress[],  // Array of token addresses (LDT and TB)
+    amounts: bigint[],                  // Array of amounts corresponding to the tokens (LDT and TB amounts)
+    txId: string
+  ) {
+    if (tokenAddresses.length !== amounts.length) {
+      this.logger.error(`Mismatch between tokenAddresses and amounts length for referrer ${referrerAddress}`);
+      return;
+    }
+
+    await this.drizzleDev.insert(schema.referralRewards).values({
+      referrerAddress,
+      tokenAddresses,
+      amounts: amounts.map(amount => amount.toString()),
+      harvestTxId: txId,
+      status: 'pending',
+      createdAt: new Date(),
+    });
+
+    this.logger.log(`Saved referral rewards for referrer ${referrerAddress} in harvest transaction ${txId}`);
   }
 
   @Cron('0 2 * * *')
@@ -244,5 +333,78 @@ export class StakingService implements OnModuleInit {
         .set({ rewardTxId: hash })
         .where(eq(schema.stakingRewards.stakerAddress, stake.stakerAddress));
     }));
+  }
+
+  @Cron('0 3 * * *')
+  async distributePendingReferralRewards() {
+    try {
+      this.logger.debug('Checking for pending referral rewards to distribute.');
+
+      // Step 1: Fetch pending referral rewards
+      const pendingRewards = await this.drizzleDev
+        .select()
+        .from(schema.referralRewards)
+        .where(eq(schema.referralRewards.status, 'pending'));
+
+      if (pendingRewards.length === 0) {
+        this.logger.log('No pending rewards to distribute.');
+        return;
+      }
+
+      // Step 2: Aggregate rewards by referrerAddress
+      const rewardsMap: Record<string, { tokenAddresses: string[], amounts: bigint[] }> = {};
+
+      for (const reward of pendingRewards) {
+        if (!rewardsMap[reward.referrerAddress]) {
+          rewardsMap[reward.referrerAddress] = { tokenAddresses: [], amounts: [] };
+        }
+
+        reward.tokenAddresses.forEach((tokenAddress, index) => {
+          const existingIndex = rewardsMap[reward.referrerAddress].tokenAddresses.indexOf(tokenAddress);
+          if (existingIndex > -1) {
+            rewardsMap[reward.referrerAddress].amounts[existingIndex] += BigInt(reward.amounts[index]);
+          } else {
+            rewardsMap[reward.referrerAddress].tokenAddresses.push(tokenAddress);
+            rewardsMap[reward.referrerAddress].amounts.push(BigInt(reward.amounts[index]));
+          }
+        });
+      }
+
+      console.log("🚀 ~ StakingService ~ distributePendingReferralRewards ~ rewardsMap:", rewardsMap)
+
+      // Step 3: Simulate distribution
+      for (const [referrerAddress, rewards] of Object.entries(rewardsMap)) {
+        this.logger.log(`Simulating distribution for ${referrerAddress}: ${JSON.stringify(rewards.amounts.map(r => r.toString()))}`);
+
+        // TODO: call the ReferralsRewards contract's distribute function
+
+        // const distributeTx = await referralsRewardsContract.methods.distributeRewards([
+        //   {
+        //     wallet: referrerAddress,
+        //     tokenAddresses: rewards.tokenAddresses,
+        //     amounts: rewards.amounts.map(amount => amount.toString()),
+        //   },
+        // ]).send({ from: process.env.WALLET_ADDRESS });
+
+        // TODO: Update the database only if the transaction succeeds
+        
+        // await this.drizzleDev
+        //   .update(schema.referralRewards)
+        //   .set({
+        //     status: 'distributed',
+        //     distributedAt: new Date(),
+        //   })
+        //   .where(
+        //     and(
+        //       eq(schema.referralRewards.referrerAddress, referrerAddress),
+        //       eq(schema.referralRewards.status, 'pending')
+        //     )
+        //   );
+      }
+
+      this.logger.log('All pending rewards have been marked as distributed.');
+    } catch (error) {
+      this.logger.error('Error in distributePendingRewards', error);
+    }
   }
 }

@@ -6,7 +6,8 @@ import {
   serial,
   unique,
   varchar,
-  timestamp
+  timestamp,
+  pgEnum
 } from 'drizzle-orm/pg-core';
 
 export const referral = pgTable(
@@ -57,4 +58,17 @@ export const stakingRewards = pgTable('staking_rewards', {
   stakingTxId: varchar('staking_tx_id').notNull(),
   rewardTxId: varchar('reward_tx_id'),
   createdAt: timestamp('created_at').default(sql`now()`),
+});
+
+export const rewardStatusEnum = pgEnum('reward_status', ['pending', 'distributed']);
+
+export const referralRewards = pgTable('referral_rewards', {
+  id: serial('id').primaryKey(),
+  referrerAddress: varchar('referrer_address').notNull(),
+  tokenAddresses: varchar('token_addresses').array().notNull(),
+  amounts: numeric('amounts').array().notNull(), 
+  harvestTxId: varchar('harvest_tx_id'),
+  status: rewardStatusEnum('status').default('pending').notNull(),
+  createdAt: timestamp('created_at').default(sql`now()`),
+  distributedAt: timestamp('distributed_at'),
 });
