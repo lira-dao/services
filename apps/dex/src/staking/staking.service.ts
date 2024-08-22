@@ -1,6 +1,5 @@
 import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
-
+import { Cron } from '@nestjs/schedule';
 import { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { eq, isNull } from 'drizzle-orm';
 import * as schema from '../db/schema';
@@ -23,6 +22,7 @@ export class StakingService implements OnModuleInit {
     // await this.distributePendingRewards();
   }
 
+  // TODO: Listen time lock staking pool
   async listenToAllStakingEvents() {
     const chainId = await this.web3.getChainId();
     const stakingContracts = tokenStakerAddresses[chainId.toString()];
@@ -90,16 +90,6 @@ export class StakingService implements OnModuleInit {
       const txId = event.transactionHash;
 
       this.logger.log(`[${contractName}] Unstake event: stakerAddress=${address}, amount=${amount}, txId=${txId}`);
-
-      // const result = await this.drizzleDev
-      //   .delete(schema.stakingRewards)
-      //   .where(eq(schema.stakingRewards.stakerAddress, wallet));
-      
-      // if (result.rowCount === 0) {
-      //   this.logger.log(`Nessun record trovato per l'indirizzo ${wallet}, nulla da eliminare.`);
-      // } else {
-      //   this.logger.log(`[${contractName}] Record stakingAddress=${wallet} eliminato dal database.`);
-      // }
     });
 
     contract.events.Stake().on('error', (error) => {
@@ -130,7 +120,7 @@ export class StakingService implements OnModuleInit {
     return result.length > 0 ? result[0].referrer : null;
   }
 
-  @Cron(CronExpression.EVERY_10_MINUTES)
+  @Cron('0 2 * * *')
   async distributePendingRewards() {
     try {
       this.logger.debug('Checking for pending rewards to distribute.');
@@ -239,7 +229,7 @@ export class StakingService implements OnModuleInit {
         const receipt = await web3.eth.sendSignedTransaction(signedTx.rawTransaction);
         this.logger.log(`Transaction to staker sent. Hash: ${receipt.transactionHash}`);
 
-        // await this.updateRewardTxId(unrewardedStakes, receipt.transactionHash);
+        await this.updateRewardTxId(unrewardedStakes, receipt.transactionHash);
       } else {
         this.logger.log('No unrewarded stakes found.');
       }
