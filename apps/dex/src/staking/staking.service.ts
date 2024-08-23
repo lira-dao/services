@@ -1,10 +1,12 @@
 import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Cron } from '@nestjs/schedule';
 import { NodePgDatabase } from 'drizzle-orm/node-postgres';
-import { eq } from 'drizzle-orm';
+import { eq, isNull } from 'drizzle-orm';
 import * as schema from '../db/schema';
-import { tokenStakerAddresses, tokens } from '@lira-dao/web3-utils';
+import { tokenStakerAddresses, tokens, erc20Abi } from '@lira-dao/web3-utils';
 import { Web3Provider } from '../services/web3.service';
 import * as TokenStaker from '@lira-dao/web3-utils/dist/abi/json/TokenStaker.json';
+import * as MulticallAbi from '../../abi/json/Multicall.json';
 
 @Injectable()
 export class StakingService implements OnModuleInit {
@@ -17,8 +19,10 @@ export class StakingService implements OnModuleInit {
 
   async onModuleInit() {
     await this.listenToAllStakingEvents();
+    // await this.distributePendingRewards();
   }
 
+  // TODO: Listen time lock staking pool
   async listenToAllStakingEvents() {
     const chainId = await this.web3.getChainId();
     const stakingContracts = tokenStakerAddresses[chainId.toString()];
@@ -81,21 +85,11 @@ export class StakingService implements OnModuleInit {
     });
 
     contract.events.Unstake().on('data', async (event) => {
-      const wallet = event.returnValues.wallet as string;
+      const address = event.returnValues.wallet as string;
       const amount = event.returnValues.amount;
       const txId = event.transactionHash;
 
-      this.logger.log(`[${contractName}] Unstake event: wallet=${wallet}, amount=${amount}, txId=${txId}`);
-
-      // const result = await this.drizzleDev
-      //   .delete(schema.stakingRewards)
-      //   .where(eq(schema.stakingRewards.stakerAddress, wallet));
-      
-      // if (result.rowCount === 0) {
-      //   this.logger.log(`Nessun record trovato per l'indirizzo ${wallet}, nulla da eliminare.`);
-      // } else {
-      //   this.logger.log(`[${contractName}] Record stakingAddress=${wallet} eliminato dal database.`);
-      // }
+      this.logger.log(`[${contractName}] Unstake event: stakerAddress=${address}, amount=${amount}, txId=${txId}`);
     });
 
     contract.events.Stake().on('error', (error) => {
@@ -124,5 +118,130 @@ export class StakingService implements OnModuleInit {
       .where(eq(schema.referral.referral, address));
   
     return result.length > 0 ? result[0].referrer : null;
+  }
+
+  @Cron('0 2 * * *')
+  async distributePendingRewards() {
+    try {
+      this.logger.debug('Checking for pending rewards to distribute.');
+
+      const unrewardedStakes = await this.drizzleDev
+        .select()
+        .from(schema.stakingRewards)
+        .where(isNull(schema.stakingRewards.rewardTxId));
+
+      if (unrewardedStakes.length > 0) {
+        this.logger.log(`Found ${unrewardedStakes.length} unrewarded stakes. Processing multicall.`);
+
+        const chainId = await this.web3.getChainId();
+
+        // TODO: Improve with lira-dao/utils
+        const multicallAddress = chainId === 421614n 
+          ? '0xA115146782b7143fAdB3065D86eACB54c169d092' 
+          : '0x842eC2c7D803033Edf55E478F461FC547Bc54EB2';
+        
+        const multicallContract = new this.web3.rpc.eth.Contract(MulticallAbi, multicallAddress);
+
+        // Step 1: Calculate total reward amount needed per token
+        const tokenRewardAmounts: Record<string, bigint> = {};
+        unrewardedStakes.forEach(stake => {
+          if (!tokenRewardAmounts[stake.tokenAddress]) {
+            tokenRewardAmounts[stake.tokenAddress] = BigInt(0);
+          }
+          tokenRewardAmounts[stake.tokenAddress] += BigInt(stake.rewardAmount) * 2n; // For staker and referrer
+        });
+
+        // Step 2: Ensure allowances are sufficient
+        for (const [tokenAddress, totalRewardAmount] of Object.entries(tokenRewardAmounts)) {
+          const tbTokenContract = new this.web3.rpc.eth.Contract(erc20Abi, tokenAddress);
+          const allowance = await tbTokenContract.methods
+            .allowance(process.env.WALLET_ADDRESS, multicallAddress)
+            .call();
+
+          if (BigInt(allowance) < totalRewardAmount) {
+            const approveTxData = tbTokenContract.methods
+              .approve(multicallAddress, totalRewardAmount.toString())
+              .encodeABI();
+
+            const approveGasEstimate = await this.web3.rpc.eth.estimateGas({
+              from: process.env.WALLET_ADDRESS,
+              to: tokenAddress,
+              data: approveTxData,
+            });
+
+            const block = await this.web3.rpc.eth.getBlock('latest');
+
+            const tx = {
+              from: process.env.WALLET_ADDRESS,
+              to: tokenAddress,
+              data: approveTxData,
+              gas: approveGasEstimate.toString(),
+              maxFeePerGas: block.baseFeePerGas * 2n,
+              maxPriorityFeePerGas: 100000,
+            };
+
+            const signedTx = await this.web3.rpc.eth.accounts.signTransaction(tx, process.env.WALLET_PRIVATE_KEY);
+            await this.web3.rpc.eth.sendSignedTransaction(signedTx.rawTransaction);
+            this.logger.log(`Approved ${tokenAddress} successfully`);
+          }
+        }
+
+        // Step 3: Prepare and send multicall for transfers
+        const calls = unrewardedStakes.flatMap(stake => {
+          const tbTokenContract = new this.web3.rpc.eth.Contract(erc20Abi, stake.tokenAddress);
+          return [
+            {
+              target: stake.tokenAddress,
+              callData: tbTokenContract.methods.transferFrom(
+                process.env.WALLET_ADDRESS, 
+                stake.stakerAddress, 
+                stake.rewardAmount.toString()
+              ).encodeABI(),
+            },
+            {
+              target: stake.tokenAddress,
+              callData: tbTokenContract.methods.transferFrom(
+                process.env.WALLET_ADDRESS, 
+                stake.referrerAddress, 
+                stake.rewardAmount.toString()
+              ).encodeABI(),
+            }
+          ];
+        });
+
+        const tx = multicallContract.methods.tryAggregate(false, calls);
+        const gasEstimate = await tx.estimateGas({
+          from: process.env.WALLET_ADDRESS
+        });
+
+        const block = await this.web3.rpc.eth.getBlock('latest');
+
+        const signedTx = await this.web3.rpc.eth.accounts.signTransaction({
+          from: process.env.WALLET_ADDRESS,
+          to: multicallAddress,
+          data: tx.encodeABI(),
+          gas: gasEstimate.toString(),
+          maxFeePerGas: block.baseFeePerGas * 2n,
+          maxPriorityFeePerGas: 100000,
+        }, process.env.WALLET_PRIVATE_KEY);
+
+        const receipt = await this.web3.rpc.eth.sendSignedTransaction(signedTx.rawTransaction);
+        this.logger.log(`Transaction to staker sent. Hash: ${receipt.transactionHash}`);
+
+        await this.updateRewardTxId(unrewardedStakes, receipt.transactionHash);
+      } else {
+        this.logger.log('No unrewarded stakes found.');
+      }
+    } catch (error) {
+      this.logger.error('Error in distributePendingRewards', error);
+    }
+  }
+  
+  private async updateRewardTxId(stakes, hash) {
+    await Promise.all(stakes.map(stake => {
+      return this.drizzleDev.update(schema.stakingRewards)
+        .set({ rewardTxId: hash })
+        .where(eq(schema.stakingRewards.stakerAddress, stake.stakerAddress));
+    }));
   }
 }
