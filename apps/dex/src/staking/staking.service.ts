@@ -3,14 +3,27 @@ import { Cron } from '@nestjs/schedule';
 import { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { and, eq, isNull } from 'drizzle-orm';
 import * as schema from '../db/schema';
-import { tokenStakerAddresses, tokens, erc20Abi, EthereumAddress } from '@lira-dao/web3-utils';
+import { referralsRewards, tokenStakerAddresses, tokens, erc20Abi, EthereumAddress } from '@lira-dao/web3-utils';
 import { Web3Provider } from '../services/web3.service';
 import * as TokenStaker from '@lira-dao/web3-utils/dist/abi/json/TokenStaker.json';
-import * as MulticallAbi from '../../abi/json/Multicall.json';
+import * as Multicall from '@lira-dao/web3-utils/dist/abi/json/Multicall.json';
+import * as ReferralsRewards from '@lira-dao/web3-utils/dist/abi/json/ReferralsRewards.json';
+
+
+interface RewardItem {
+  wallet: string;
+  ldt: bigint;
+  tbb: bigint;
+  tbs: bigint;
+  tbg: bigint;
+}
 
 @Injectable()
 export class StakingService implements OnModuleInit {
   private readonly logger = new Logger(StakingService.name);
+
+  private referralsRewardsContract: any;
+  private tokenContracts: Record<keyof RewardItem, EthereumAddress>;
 
   constructor(
     private readonly web3: Web3Provider,
@@ -18,22 +31,28 @@ export class StakingService implements OnModuleInit {
   ) {}
 
   async onModuleInit() {
-    await this.listenToAllStakingEvents();
-    // await this.distributePendingRewards();
-    // this.distributePendingReferralRewards();
+    const chainId = await this.web3.getChainId();
+    this.logger.log(`Initialized StakingService with chainId: ${chainId}`);
+
+    const stakingContracts = tokenStakerAddresses[chainId.toString()];
+    const referralsRewardsAddress = referralsRewards[chainId.toString()];
+    this.tokenContracts = tokens[chainId.toString()];
+
+    this.referralsRewardsContract = new this.web3.rpc.eth.Contract(
+      ReferralsRewards.abi,
+      referralsRewardsAddress,
+    );
+
+    await this.listenToAllStakingEvents(stakingContracts);
   }
 
-  // TODO: Listen time lock staking pool
-  async listenToAllStakingEvents() {
-    const chainId = await this.web3.getChainId();
-    const stakingContracts = tokenStakerAddresses[chainId.toString()];
-    const tokenContracts = tokens[chainId.toString()];
-    const tokenLdtAddress = tokens[chainId.toString()]['ldt']
+  async listenToAllStakingEvents(stakingContracts: Record<string, string>) {
+    const tokenLdtAddress = this.tokenContracts['ldt'];
 
     await Promise.all(
       Object.keys(stakingContracts).map(async (key) => {
         const tokenStakerAddress = stakingContracts[key];
-        const tokenAddress = tokenContracts[key];
+        const tokenAddress = this.tokenContracts[key];
 
         this.logger.log(
           `[listenToAllStakingEvents] Subscribing to Stake/Unstake, Harvest events for ${key} at address ${tokenStakerAddress} from token ${tokenAddress}`,
@@ -229,9 +248,9 @@ export class StakingService implements OnModuleInit {
           ? '0xA115146782b7143fAdB3065D86eACB54c169d092' 
           : '0x842eC2c7D803033Edf55E478F461FC547Bc54EB2';
         
-        const multicallContract = new this.web3.rpc.eth.Contract(MulticallAbi, multicallAddress);
+        const multicallContract = new this.web3.rpc.eth.Contract(Multicall, multicallAddress);
 
-        // Step 1: Calculate total reward amount needed per token
+        // Calculate total reward amount needed per token
         const tokenRewardAmounts: Record<string, bigint> = {};
         unrewardedStakes.forEach(stake => {
           if (!tokenRewardAmounts[stake.tokenAddress]) {
@@ -240,7 +259,7 @@ export class StakingService implements OnModuleInit {
           tokenRewardAmounts[stake.tokenAddress] += BigInt(stake.rewardAmount) * 2n; // For staker and referrer
         });
 
-        // Step 2: Ensure allowances are sufficient
+        // Ensure allowances are sufficient
         for (const [tokenAddress, totalRewardAmount] of Object.entries(tokenRewardAmounts)) {
           const tbTokenContract = new this.web3.rpc.eth.Contract(erc20Abi, tokenAddress);
           const allowance = await tbTokenContract.methods
@@ -275,7 +294,7 @@ export class StakingService implements OnModuleInit {
           }
         }
 
-        // Step 3: Prepare and send multicall for transfers
+        // Prepare and send multicall for transfers
         const calls = unrewardedStakes.flatMap(stake => {
           const tbTokenContract = new this.web3.rpc.eth.Contract(erc20Abi, stake.tokenAddress);
           return [
@@ -315,7 +334,7 @@ export class StakingService implements OnModuleInit {
         }, process.env.WALLET_PRIVATE_KEY);
 
         const receipt = await this.web3.rpc.eth.sendSignedTransaction(signedTx.rawTransaction);
-        this.logger.log(`Transaction to staker sent. Hash: ${receipt.transactionHash}`);
+        this.logger.log(`Transaction to staker completed. Hash: ${receipt.transactionHash}`);
 
         await this.updateRewardTxId(unrewardedStakes, receipt.transactionHash);
       } else {
@@ -339,7 +358,6 @@ export class StakingService implements OnModuleInit {
     try {
       this.logger.debug('Checking for pending referral rewards to distribute.');
 
-      // Step 1: Fetch pending referral rewards
       const pendingRewards = await this.drizzleDev
         .select()
         .from(schema.referralRewards)
@@ -350,60 +368,173 @@ export class StakingService implements OnModuleInit {
         return;
       }
 
-      // Step 2: Aggregate rewards by referrerAddress
-      const rewardsMap: Record<string, { tokenAddresses: string[], amounts: bigint[] }> = {};
+      // Aggregate rewards by referrerAddress and tokenAddresses
+      const rewardsMap: Record<string, Partial<Record<keyof RewardItem, bigint>>> = {};
+      const tokenTotals: Partial<Record<keyof RewardItem, bigint>> = {};
 
       for (const reward of pendingRewards) {
-        if (!rewardsMap[reward.referrerAddress]) {
-          rewardsMap[reward.referrerAddress] = { tokenAddresses: [], amounts: [] };
+        const referrer = reward.referrerAddress;
+  
+        if (!rewardsMap[referrer]) {
+          rewardsMap[referrer] = {};
         }
-
+  
         reward.tokenAddresses.forEach((tokenAddress, index) => {
-          const existingIndex = rewardsMap[reward.referrerAddress].tokenAddresses.indexOf(tokenAddress);
-          if (existingIndex > -1) {
-            rewardsMap[reward.referrerAddress].amounts[existingIndex] += BigInt(reward.amounts[index]);
-          } else {
-            rewardsMap[reward.referrerAddress].tokenAddresses.push(tokenAddress);
-            rewardsMap[reward.referrerAddress].amounts.push(BigInt(reward.amounts[index]));
+          const amount = BigInt(reward.amounts[index]);
+          const tokenKey = this.getTokenKeyByAddress(tokenAddress);
+
+          if (tokenKey) {
+            const existingAmount = rewardsMap[referrer]![tokenKey] ?? 0n;
+            rewardsMap[referrer]![tokenKey] = existingAmount + amount;
+
+            tokenTotals[tokenKey] = (tokenTotals[tokenKey] ?? 0n) + amount;
           }
         });
       }
 
-      console.log("🚀 ~ StakingService ~ distributePendingReferralRewards ~ rewardsMap:", rewardsMap)
+      const rewardItems = Object.entries(rewardsMap).map(([wallet, reward]) => ({
+        wallet,
+        ldt: reward.ldt || 0n,
+        tbb: reward.tbb || 0n,
+        tbs: reward.tbs || 0n,
+        tbg: reward.tbg || 0n,
+      }));
 
-      // Step 3: Simulate distribution
-      for (const [referrerAddress, rewards] of Object.entries(rewardsMap)) {
-        this.logger.log(`Simulating distribution for ${referrerAddress}: ${JSON.stringify(rewards.amounts.map(r => r.toString()))}`);
+      const rewardItemsForLogging = JSON.parse(JSON.stringify(rewardItems, (key, value) =>
+        typeof value === 'bigint' ? value.toString() : value
+      ));
+      this.logger.log(`Aggregated referral rewards: ${JSON.stringify(rewardItemsForLogging)}`);
 
-        // TODO: call the ReferralsRewards contract's distribute function
+      const chainId = await this.web3.getChainId();
+      const multicallAddress = chainId === 421614n 
+        ? '0xA115146782b7143fAdB3065D86eACB54c169d092' 
+        : '0x842eC2c7D803033Edf55E478F461FC547Bc54EB2';
 
-        // const distributeTx = await referralsRewardsContract.methods.distributeRewards([
-        //   {
-        //     wallet: referrerAddress,
-        //     tokenAddresses: rewards.tokenAddresses,
-        //     amounts: rewards.amounts.map(amount => amount.toString()),
-        //   },
-        // ]).send({ from: process.env.WALLET_ADDRESS });
-
-        // TODO: Update the database only if the transaction succeeds
-        
-        // await this.drizzleDev
-        //   .update(schema.referralRewards)
-        //   .set({
-        //     status: 'distributed',
-        //     distributedAt: new Date(),
-        //   })
-        //   .where(
-        //     and(
-        //       eq(schema.referralRewards.referrerAddress, referrerAddress),
-        //       eq(schema.referralRewards.status, 'pending')
-        //     )
-        //   );
+      for (const [tokenKey, totalAmount] of Object.entries(tokenTotals)) {
+        const tokenAddress = this.tokenContracts[tokenKey as keyof RewardItem];
+        const tokenContract = new this.web3.rpc.eth.Contract(erc20Abi, tokenAddress);
+  
+        const allowance = await tokenContract.methods
+          .allowance(process.env.WALLET_ADDRESS, multicallAddress)
+          .call();
+  
+        if (BigInt(allowance) < totalAmount!) {
+          const approveTxData = tokenContract.methods
+            .approve(multicallAddress, totalAmount!.toString())
+            .encodeABI();
+  
+          const approveGasEstimate = await this.web3.rpc.eth.estimateGas({
+            from: process.env.WALLET_ADDRESS,
+            to: tokenAddress,
+            data: approveTxData,
+          });
+  
+          const block = await this.web3.rpc.eth.getBlock('latest');
+  
+          const approveTx = {
+            from: process.env.WALLET_ADDRESS,
+            to: tokenAddress,
+            data: approveTxData,
+            gas: approveGasEstimate.toString(),
+            maxFeePerGas: block.baseFeePerGas * 2n,
+            maxPriorityFeePerGas: 100000,
+          };
+  
+          const signedApproveTx = await this.web3.rpc.eth.accounts.signTransaction(approveTx, process.env.WALLET_PRIVATE_KEY);
+          await this.web3.rpc.eth.sendSignedTransaction(signedApproveTx.rawTransaction);
+          this.logger.log(`Allowance set for ${tokenAddress} successfully`);
+        }
       }
 
+      const multicallContract = new this.web3.rpc.eth.Contract(Multicall, multicallAddress);
+
+      const transfers = Object.entries(tokenTotals).map(([tokenKey, totalAmount]) => {
+        const tokenAddress = this.tokenContracts[tokenKey as keyof RewardItem];
+        const tokenContract = new this.web3.rpc.eth.Contract(erc20Abi, tokenAddress);
+
+        return {
+          target: tokenAddress,
+          callData: tokenContract.methods.transferFrom(
+            process.env.WALLET_ADDRESS, 
+            this.referralsRewardsContract.options.address, 
+            totalAmount!.toString()
+          ).encodeABI(),
+        };
+      });
+
+      const multicallTx = multicallContract.methods.tryAggregate(false, transfers);
+      const multicallGasEstimate = await multicallTx.estimateGas({
+        from: process.env.WALLET_ADDRESS,
+      });
+
+      let block = await this.web3.rpc.eth.getBlock('latest');
+
+      const signedMulticallTx = await this.web3.rpc.eth.accounts.signTransaction({
+        from: process.env.WALLET_ADDRESS,
+        to: multicallAddress,
+        data: multicallTx.encodeABI(),
+        gas: multicallGasEstimate.toString(),
+        maxFeePerGas: block.baseFeePerGas * 2n,
+        maxPriorityFeePerGas: 100000,
+      }, process.env.WALLET_PRIVATE_KEY);
+
+      const multicallReceipt = await this.web3.rpc.eth.sendSignedTransaction(signedMulticallTx.rawTransaction);
+      this.logger.log(`Multicall transaction completed. Hash: ${multicallReceipt.transactionHash}`);
+
+      const distributeTxData = this.referralsRewardsContract.methods
+        .distributeRewards(rewardItems)
+        .encodeABI();
+
+      const gasEstimate = await this.web3.rpc.eth.estimateGas({
+        from: process.env.WALLET_ADDRESS,
+        to: this.referralsRewardsContract.options.address,
+        data: distributeTxData,
+      });
+
+      block = await this.web3.rpc.eth.getBlock('latest');
+
+      const signedTx = await this.web3.rpc.eth.accounts.signTransaction({
+        from: process.env.WALLET_ADDRESS,
+        to: this.referralsRewardsContract.options.address,
+        data: distributeTxData,
+        gas: gasEstimate.toString(),
+        maxFeePerGas: block.baseFeePerGas * 2n,
+        maxPriorityFeePerGas: 100000,
+      }, process.env.WALLET_PRIVATE_KEY);
+
+      const distributeRewardsTx = await this.web3.rpc.eth.sendSignedTransaction(signedTx.rawTransaction);
+      this.logger.log(`Rewards distribution successfully. Hash: ${distributeRewardsTx.transactionHash}`);
+
+      // Update the status of the distributed rewards in the database
+      for (const reward of pendingRewards) {
+        await this.drizzleDev
+          .update(schema.referralRewards)
+          .set({
+            distributionTxId: distributeRewardsTx.transactionHash as string,
+            status: 'distributed',
+            distributedAt: new Date(),
+          })
+          .where(
+            and(
+              eq(schema.referralRewards.referrerAddress, reward.referrerAddress),
+              eq(schema.referralRewards.status, 'pending')
+            )
+          );
+      }
+        
       this.logger.log('All pending rewards have been marked as distributed.');
     } catch (error) {
       this.logger.error('Error in distributePendingRewards', error);
     }
+  }
+
+  private getTokenKeyByAddress(address: string): keyof RewardItem | null {
+    const entries = Object.entries(this.tokenContracts);
+    for (const [key, value] of entries) {
+      if (value === address) {
+        return key as keyof RewardItem;
+      }
+    }
+    return null;
   }
 }

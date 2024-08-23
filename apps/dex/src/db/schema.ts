@@ -68,6 +68,7 @@ export const referralRewards = pgTable('referral_rewards', {
   tokenAddresses: varchar('token_addresses').array().notNull(),
   amounts: numeric('amounts').array().notNull(), 
   harvestTxId: varchar('harvest_tx_id'),
+  distributionTxId: varchar('distribution_tx_id'),
   status: rewardStatusEnum('status').default('pending').notNull(),
   createdAt: timestamp('created_at').default(sql`now()`),
   distributedAt: timestamp('distributed_at'),
