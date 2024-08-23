@@ -133,7 +133,6 @@ export class StakingService implements OnModuleInit {
       if (unrewardedStakes.length > 0) {
         this.logger.log(`Found ${unrewardedStakes.length} unrewarded stakes. Processing multicall.`);
 
-        const web3 = this.web3.getWeb3Instance();
         const chainId = await this.web3.getChainId();
 
         // TODO: Improve with lira-dao/utils
@@ -141,7 +140,7 @@ export class StakingService implements OnModuleInit {
           ? '0xA115146782b7143fAdB3065D86eACB54c169d092' 
           : '0x842eC2c7D803033Edf55E478F461FC547Bc54EB2';
         
-        const multicallContract = new web3.eth.Contract(MulticallAbi, multicallAddress);
+        const multicallContract = new this.web3.rpc.eth.Contract(MulticallAbi, multicallAddress);
 
         // Step 1: Calculate total reward amount needed per token
         const tokenRewardAmounts: Record<string, bigint> = {};
@@ -154,7 +153,7 @@ export class StakingService implements OnModuleInit {
 
         // Step 2: Ensure allowances are sufficient
         for (const [tokenAddress, totalRewardAmount] of Object.entries(tokenRewardAmounts)) {
-          const tbTokenContract = new web3.eth.Contract(erc20Abi, tokenAddress);
+          const tbTokenContract = new this.web3.rpc.eth.Contract(erc20Abi, tokenAddress);
           const allowance = await tbTokenContract.methods
             .allowance(process.env.WALLET_ADDRESS, multicallAddress)
             .call();
@@ -164,13 +163,13 @@ export class StakingService implements OnModuleInit {
               .approve(multicallAddress, totalRewardAmount.toString())
               .encodeABI();
 
-            const approveGasEstimate = await web3.eth.estimateGas({
+            const approveGasEstimate = await this.web3.rpc.eth.estimateGas({
               from: process.env.WALLET_ADDRESS,
               to: tokenAddress,
               data: approveTxData,
             });
 
-            const block = await web3.eth.getBlock('latest');
+            const block = await this.web3.rpc.eth.getBlock('latest');
 
             const tx = {
               from: process.env.WALLET_ADDRESS,
@@ -181,15 +180,15 @@ export class StakingService implements OnModuleInit {
               maxPriorityFeePerGas: 100000,
             };
 
-            const signedTx = await web3.eth.accounts.signTransaction(tx, process.env.WALLET_PRIVATE_KEY);
-            await web3.eth.sendSignedTransaction(signedTx.rawTransaction);
+            const signedTx = await this.web3.rpc.eth.accounts.signTransaction(tx, process.env.WALLET_PRIVATE_KEY);
+            await this.web3.rpc.eth.sendSignedTransaction(signedTx.rawTransaction);
             this.logger.log(`Approved ${tokenAddress} successfully`);
           }
         }
 
         // Step 3: Prepare and send multicall for transfers
         const calls = unrewardedStakes.flatMap(stake => {
-          const tbTokenContract = new web3.eth.Contract(erc20Abi, stake.tokenAddress);
+          const tbTokenContract = new this.web3.rpc.eth.Contract(erc20Abi, stake.tokenAddress);
           return [
             {
               target: stake.tokenAddress,
@@ -215,9 +214,9 @@ export class StakingService implements OnModuleInit {
           from: process.env.WALLET_ADDRESS
         });
 
-        const block = await web3.eth.getBlock('latest');
+        const block = await this.web3.rpc.eth.getBlock('latest');
 
-        const signedTx = await web3.eth.accounts.signTransaction({
+        const signedTx = await this.web3.rpc.eth.accounts.signTransaction({
           from: process.env.WALLET_ADDRESS,
           to: multicallAddress,
           data: tx.encodeABI(),
@@ -226,7 +225,7 @@ export class StakingService implements OnModuleInit {
           maxPriorityFeePerGas: 100000,
         }, process.env.WALLET_PRIVATE_KEY);
 
-        const receipt = await web3.eth.sendSignedTransaction(signedTx.rawTransaction);
+        const receipt = await this.web3.rpc.eth.sendSignedTransaction(signedTx.rawTransaction);
         this.logger.log(`Transaction to staker sent. Hash: ${receipt.transactionHash}`);
 
         await this.updateRewardTxId(unrewardedStakes, receipt.transactionHash);
