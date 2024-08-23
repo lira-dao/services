@@ -24,8 +24,4 @@ export class Web3Provider {
 
     return this.chainId;
   }
-
-  getWeb3Instance(): Web3 {
-    return this.rpc;
-  }
 }
