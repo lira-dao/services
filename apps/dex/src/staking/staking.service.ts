@@ -353,7 +353,7 @@ export class StakingService implements OnModuleInit {
     }));
   }
 
-  @Cron('0 3 * * *')
+  @Cron('0 1 * * *')
   async distributePendingReferralRewards() {
     try {
       this.logger.debug('Checking for pending referral rewards to distribute.');
