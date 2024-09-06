@@ -43,7 +43,176 @@ export class StakingService implements OnModuleInit {
       referralsRewardsAddress,
     );
 
+    await this.sync(stakingContracts);
     await this.listenToAllStakingEvents(stakingContracts);
+  }
+
+  async sync(stakingContracts: Record<string, string>) {
+    this.logger.log('[sync] start');
+
+    const endBlock = await this.web3.rpc.eth.getBlockNumber();
+    this.logger.log('[sync] latestBlock: ' + endBlock.toString());
+
+    // arbitrum sepolia
+    const startBlocks = {
+      'tbb': 66269099,
+      'tbs': 66269125,
+      'tbg': 66269147,
+    };
+
+    const batchSize = 500000;
+    let allEvents = [];
+
+    for (const [tokenName, tokenStakerAddress] of Object.entries(stakingContracts)) {
+
+      const startBlock = startBlocks[tokenName];
+      if (!startBlock) {
+        this.logger.error(`[sync] Start block not found for ${tokenName}`);
+        return;
+      }
+
+      this.logger.log(`[sync] Starting sync for ${tokenName} from block ${startBlock}`);
+
+      let currentStartBlock = startBlock;
+
+      while (currentStartBlock <= endBlock) {
+        const currentEndBlock = Math.min(
+          currentStartBlock + batchSize - 1,
+          Number(endBlock),
+        );
+  
+        try {
+          this.logger.log(`[sync] fetching events from block ${currentStartBlock} to ${currentEndBlock}`);
+
+          const events = (await this.fetchStakingEvents(tokenStakerAddress, currentStartBlock, currentEndBlock)).map(event => {
+            if (typeof event === 'object') {
+              return { ...event, tokenName };
+            }
+            return event;
+          });
+
+          allEvents = allEvents.concat(events);
+        } catch (error) {
+          this.logger.error(
+            `Error fetching events from blocks ${currentStartBlock} to ${currentEndBlock}:`,
+            error,
+          );
+        }
+
+        currentStartBlock = currentEndBlock + 1;
+      }
+      
+      await this.sleep(1000);
+    }
+
+    let stakeEventCount = 0;
+    let harvestEventCount = 0;
+
+    for (const event of allEvents) {
+
+      if (event.event === 'Stake') {
+
+        stakeEventCount++;
+
+        const exists = await this.drizzleDev
+          .select()
+          .from(schema.stakingRewards)
+          .where(eq(schema.stakingRewards.stakingTxId, event.transactionHash))
+          .limit(1);
+
+        if (exists.length === 0) {
+          const address = event.returnValues.wallet as EthereumAddress;
+          const amount = BigInt(event.returnValues.amount as string);
+          const txId = event.transactionHash;
+
+          const alreadyStaked = await this.hasStaked(address);
+          if (!alreadyStaked) {
+            const referrer = await this.getReferrer(address);
+            if (referrer) {
+              const rewardAmount = (amount * 10n) / 100n;  // Calculate reward (10% of staking)
+
+              const tokenAddress = this.tokenContracts[event.tokenName] as EthereumAddress;
+
+              const insertResult = await this.drizzleDev
+                .insert(schema.stakingRewards)
+                .values({
+                  stakerAddress: address,
+                  referrerAddress: referrer,
+                  tokenAddress: tokenAddress,
+                  stakedAmount: amount.toString(),
+                  rewardAmount: rewardAmount.toString(),
+                  stakingTxId: txId,
+                  rewardTxId: null,
+                })
+                .returning();
+
+              if (insertResult.length > 0) {
+                this.logger.log(`[${event.tokenName}] Staking record created: stakerAddress=${address}, referrerAddress=${referrer}, amount=${amount}, rewardAmount=${rewardAmount}, txId=${txId}`);
+              } else {
+                this.logger.error(`[${event.tokenName}] Error inserting staking record for wallet=${address}`);
+              }
+            }
+          }
+        }
+      }
+
+      if (event.event === 'Harvest') {
+
+        harvestEventCount++;
+
+        const existsHarvest = await this.drizzleDev
+          .select()
+          .from(schema.referralRewards)
+          .where(eq(schema.referralRewards.harvestTxId, event.transactionHash))
+          .limit(1);
+
+        if (existsHarvest.length === 0) {
+          const address = event.returnValues.wallet as EthereumAddress;
+          const amountLDT = BigInt(event.returnValues.amountToken1 as string);
+          const amountTB = BigInt(event.returnValues.amountToken2 as string);
+          const txId = event.transactionHash;
+      
+          this.logger.log(`[${event.tokenName}] Harvest event: wallet=${address}, amount=[${amountLDT}, ${amountTB})], txId=${txId}`);
+      
+          const referrers = await this.getLevelsReferrer(address);
+          if (!referrers) {
+            this.logger.log(`No referrer found for staker ${address}. Skipping referral reward.`);
+            continue;
+          }
+      
+          const firstLevelRewardLDT = (amountLDT * 25n) / 1000n;
+          const secondLevelRewardLDT = (amountLDT * 15n) / 1000n;
+          const thirdLevelRewardLDT = (amountLDT * 10n) / 1000n;
+      
+          const firstLevelRewardTB = (amountTB * 25n) / 1000n;
+          const secondLevelRewardTB = (amountTB * 15n) / 1000n;
+          const thirdLevelRewardTB = (amountTB * 10n) / 1000n;
+      
+          if (referrers.firstLevel) {
+            await this.saveReferralReward(referrers.firstLevel, [this.tokenContracts['ldt'], this.tokenContracts[event.tokenName]], [firstLevelRewardLDT, firstLevelRewardTB], txId);
+          }
+          if (referrers.secondLevel) {
+            await this.saveReferralReward(referrers.secondLevel, [this.tokenContracts['ldt'], this.tokenContracts[event.tokenName]], [secondLevelRewardLDT, secondLevelRewardTB], txId);
+          }
+          if (referrers.thirdLevel) {
+            await this.saveReferralReward(referrers.thirdLevel, [this.tokenContracts['ldt'], this.tokenContracts[event.tokenName]], [thirdLevelRewardLDT, thirdLevelRewardTB], txId);
+          }
+        }
+      }
+
+      await this.sleep(1000);
+    };
+
+    this.logger.log(`[sync] Processed ${stakeEventCount} Stake events and ${harvestEventCount} Harvest events`);
+  }
+
+  async fetchStakingEvents(contractAddress: string, fromBlock: number, toBlock: number) {
+    const contract = new this.web3.rpc.eth.Contract(TokenStaker.abi, contractAddress);
+    
+    return await contract.getPastEvents('allEvents', {
+      fromBlock,
+      toBlock,
+    });
   }
 
   async listenToAllStakingEvents(stakingContracts: Record<string, string>) {
@@ -536,5 +705,9 @@ export class StakingService implements OnModuleInit {
       }
     }
     return null;
+  }
+
+  private async sleep(ms: number) {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 }
