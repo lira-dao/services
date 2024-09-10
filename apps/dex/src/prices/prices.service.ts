@@ -6,16 +6,16 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { HttpService } from '@nestjs/axios';
 import { catchError, firstValueFrom } from 'rxjs';
 import { AxiosError } from 'axios';
-import { HttpService } from '@nestjs/axios';
 import * as schema from '../db/schema';
 import { NodePgDatabase } from 'drizzle-orm/node-postgres';
+import { eq, sql } from 'drizzle-orm';
 import { Web3Provider } from '../services/web3.service';
 import * as UniswapV2Pair from '@lira-dao/web3-utils/dist/abi/json/UniswapV2Pair.json';
 import * as UniswapV2Router02 from '@lira-dao/web3-utils/dist/abi/json/UniswapV2Router02.json';
-import { dexAddress, dexPairs, tokens } from '@lira-dao/web3-utils';
-import { eq } from 'drizzle-orm';
+import { dexAddress, dexPairs, erc20Abi, tokens } from '@lira-dao/web3-utils';
 import BigNumber from 'bignumber.js';
 
 export interface CoinMarketCapPricesResponse {
@@ -517,6 +517,159 @@ export class PricesService implements OnModuleInit {
         .then(() => this.logger.debug('updated weth price'))
         .catch((err) => this.logger.error('error updating weth price', err));
     }
+
+    // Handle LP Prices
+    // this.logger.debug('start updating LP prices');
+    
+    const chainId = await this.web3.getChainId();
+    const lpPairAddresses = Object.keys(dexPairs[chainId.toString()]);
+    
+    for (const lpPairAddress of lpPairAddresses) {
+      const lpPairContract = new this.web3.rpc.eth.Contract(UniswapV2Pair.abi, lpPairAddress);
+    
+      const reserves = await lpPairContract.methods.getReserves().call();
+      const reserve0Raw = new BigNumber((reserves as any)._reserve0);
+      const reserve1Raw = new BigNumber((reserves as any)._reserve1);
+    
+      let token0Address: string | null = null;
+      let token1Address: string | null = null;
+  
+      try {
+        token0Address = await lpPairContract.methods.token0().call();
+        token1Address = await lpPairContract.methods.token1().call();
+      } catch (error) {
+        this.logger.error(`Failed to fetch token addresses for LP ${lpPairAddress}: ${error}`);
+        continue;
+      }
+
+      if (typeof token0Address !== 'string' || typeof token1Address !== 'string') {
+        this.logger.warn(`Invalid token addresses for LP ${lpPairAddress}`);
+        continue;
+      }
+
+      const token0Symbol = this.findSymbolByAddress(token0Address, tokens[chainId.toString()]);
+      const token1Symbol = this.findSymbolByAddress(token1Address, tokens[chainId.toString()]);
+  
+      if (!token0Symbol || !token1Symbol) {
+        this.logger.warn(`Symbols for one or both token addresses not found: ${token0Address}, ${token1Address}`);
+        continue;
+      }
+
+      const token0Decimals = await this.getTokenDecimals(token0Address);
+      const token1Decimals = await this.getTokenDecimals(token1Address);
+
+      // TODO: improve with tokens table
+      const token0Details = await this.getTokenPriceBySymbol(token0Symbol);
+      const token1Details = await this.getTokenPriceBySymbol(token1Symbol);
+
+      if (token0Details.price === 0 || token1Details.price === 0) {
+        this.logger.warn(`One of the token prices is zero for LP ${lpPairAddress}. Skipping calculation.`);
+        continue;
+      }
+      const token0Price = token0Details.price;
+      const token1Price = token1Details.price;
+
+      const pairSymbol = this.findPairSymbolByAddress(lpPairAddress, dexPairs[chainId.toString()]);
+
+      if (!pairSymbol) {
+        this.logger.warn(`Symbol for LP pair address not found: ${lpPairAddress}`);
+      } else {
+        console.log(`LP Symbol for ${lpPairAddress} is ${pairSymbol}`);
+      }
+
+      const reserve0 = reserve0Raw.div(new BigNumber(10).pow(token0Decimals));
+      const reserve1 = reserve1Raw.div(new BigNumber(10).pow(token1Decimals));
+
+      const reserve0Value = reserve0.times(token0Price);
+      const reserve1Value = reserve1.times(token1Price);
+
+      const totalValue = reserve0Value.plus(reserve1Value);
+
+      const lpDecimals = Number(await lpPairContract.methods.decimals().call());
+  
+      let lpSupplyRaw: BigNumber;
+      try {
+        lpSupplyRaw = new BigNumber(await lpPairContract.methods.totalSupply().call());
+      } catch (error) {
+        this.logger.error(`Failed to fetch total supply for LP: ${error}`);
+        return new BigNumber(0);
+      }
+
+      const lpSupply = lpSupplyRaw.dividedBy(new BigNumber(10).pow(lpDecimals));
+      if (lpSupply.isZero()) {
+        this.logger.warn('LP Supply is zero. Cannot calculate LP price.');
+        return new BigNumber(0);
+      }
+  
+      const lpPrice = totalValue.div(lpSupply);
+
+      // const token0PerLp = reserve0.div(lpSupply);
+      // const token1PerLp = reserve1.div(lpSupply);
+
+      // console.log({
+      //   address: lpPairAddress,
+      //   symbol: pairSymbol,
+      //   price: lpPrice.toString(),
+      //   totalValue: totalValue.toString(),
+      //   supply: lpSupply.toString(),
+      //   reserve0: reserve0.toString(),
+      //   reserve1: reserve1.toString(),
+      //   reserve0Value: reserve0Value.toString(),
+      //   reserve1Value: reserve1Value.toString(),
+      //   token0Price: token0Price.toString(),
+      //   token1Price: token1Price.toString(),
+      //   token0perLP: reserve0.div(lpSupply).toString(),
+      //   token1perLP: reserve1.div(lpSupply).toString(),
+      //   updated_at: new Date().toISOString()
+      // });
+
+      const lpValues = {
+        pairAddress: lpPairAddress,
+        symbol: this.findPairSymbolByAddress(lpPairAddress, dexPairs[chainId.toString()]),
+        price: lpPrice.toString(),
+      };
+
+      this.drizzleDev
+        .insert(schema.lpPrices)
+        .values(lpValues)
+        .onConflictDoUpdate({
+          target: [schema.lpPrices.pairAddress, schema.lpPrices.symbol],
+          set: lpValues,
+        })
+        .then(() => this.logger.debug('updated LP prices'))
+        .catch((err) => this.logger.error('error updating LP prices', err));
+    }
+
+    // this.logger.debug('end updating LP prices');
+  }
+
+  findPairSymbolByAddress(pairAddress: string, dexPairs: { [pairAddress: string]: { symbol: string } }): string | null {
+
+    if (dexPairs[pairAddress]) {
+      return dexPairs[pairAddress].symbol;
+    }
+
+    return null;
+  }
+
+  findSymbolByAddress(address: string, tokenMap: { [symbol: string]: string }): string | null {
+    for (const symbol in tokenMap) {
+      if (tokenMap[symbol] === address) {
+        return symbol;
+      }
+    }
+    return null;
+  }
+
+  async getTokenDecimals(tokenAddress: string): Promise<number> {
+    const tokenContract = new this.web3.rpc.eth.Contract(erc20Abi, tokenAddress);
+    try {
+      const decimals = await tokenContract.methods.decimals().call();
+      return parseInt(decimals.toString(), 10);
+    } catch (error) {
+      this.logger.error(`Failed to fetch decimals for token ${tokenAddress}: ${error}`);
+      return 18;
+    }
   }
 
   async getCoinMarketCapPrices(): Promise<CoinMarketCapPricesResponse> {
@@ -553,6 +706,27 @@ export class PricesService implements OnModuleInit {
     } catch (error) {
       this.logger.error('Error fetching all prices', error);
       throw new InternalServerErrorException('Error fetching all prices');
+    }
+  }
+
+  async getTokenPriceBySymbol(tokenSymbol: string): Promise<{ symbol: string, price: number }> {
+
+    const tokenPrice = await this.drizzleDev
+      .select()
+      .from(schema.prices)
+      .where(sql`lower(${schema.prices.symbol}) = ${tokenSymbol.toLowerCase()}`)
+      .execute();
+
+    if (tokenPrice.length > 0) {
+      const token = tokenPrice[0];      
+
+      return {
+        symbol: token.symbol,
+        price: parseFloat(token.price),
+      };
+    } else {
+      this.logger.warn(`Price for token symbol ${tokenSymbol} not found in DB`);
+      return { symbol: tokenSymbol, price: 0 };
     }
   }
 }
