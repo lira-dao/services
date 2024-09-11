@@ -519,8 +519,6 @@ export class PricesService implements OnModuleInit {
     }
 
     // Handle LP Prices
-    // this.logger.debug('start updating LP prices');
-    
     const chainId = await this.web3.getChainId();
     const lpPairAddresses = Object.keys(dexPairs[chainId.toString()]);
     
@@ -639,8 +637,6 @@ export class PricesService implements OnModuleInit {
         .then(() => this.logger.debug('updated LP prices'))
         .catch((err) => this.logger.error('error updating LP prices', err));
     }
-
-    // this.logger.debug('end updating LP prices');
   }
 
   findPairSymbolByAddress(pairAddress: string, dexPairs: { [pairAddress: string]: { symbol: string } }): string | null {
@@ -706,6 +702,21 @@ export class PricesService implements OnModuleInit {
     } catch (error) {
       this.logger.error('Error fetching all prices', error);
       throw new InternalServerErrorException('Error fetching all prices');
+    }
+  }
+
+  async getAllLpPrices() {
+    this.logger.debug('Fetching all LP prices from db.');
+
+    try {
+      const results = await this.drizzleDev
+        .select()
+        .from(schema.lpPrices)
+        .execute();
+      return results;
+    } catch (error) {
+      this.logger.error('Error fetching all LP prices', error);
+      throw new InternalServerErrorException('Error fetching all LP prices');
     }
   }
 
