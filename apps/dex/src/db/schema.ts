@@ -48,6 +48,7 @@ export const lpPrices = pgTable(
     pairAddress: varchar('pair_address').notNull(),
     symbol: varchar('symbol').notNull(),
     price: numeric('price').notNull(),
+    supply: varchar('supply'),
     updatedAt: timestamp('updated_at').default(sql`now()`),
   },
   (table) => ({
