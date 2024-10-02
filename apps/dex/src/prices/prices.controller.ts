@@ -29,4 +29,21 @@ export class PricesController {
       );
     }
   }
+
+  @Get('/lp')
+  async getAllLpPrices() {
+    try {
+      const lpPrices = await this.pricesService.getAllLpPrices();
+      return { status: 'success', data: lpPrices };
+    } catch (error) {
+      this.logger.error('Failed to retrieve all LP prices', error);
+      throw new HttpException(
+        {
+          status: 'fail',
+          error: 'Failed to retrieve all LP prices',
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
 }

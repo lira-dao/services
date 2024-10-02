@@ -41,6 +41,22 @@ export const prices = pgTable('prices', {
   marketCap: numeric('marketCap').notNull(),
 });
 
+export const lpPrices = pgTable(
+  'lp_prices',
+  {
+    id: serial('id').primaryKey(),
+    pairAddress: varchar('pair_address').notNull(),
+    symbol: varchar('symbol').notNull(),
+    price: numeric('price').notNull(),
+    supply: varchar('supply'),
+    updatedAt: timestamp('updated_at').default(sql`now()`),
+  },
+  (table) => ({
+    unique_pair_address: unique().on(table.pairAddress, table.symbol),
+  }),
+);
+
+
 export const price = pgTable('price', {
   chainId: integer('chain_id'),
   token0: varchar('token0'),
